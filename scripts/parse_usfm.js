@@ -2,12 +2,8 @@ const fse = require('fs-extra');
 
 const { Proskomma } = require('../dist/index.js');
 
-if (process.argv.length !== 4) {
-  console.log('USAGE: node do_graph.js <USFM/USX Path> <Query Path>');
-  process.exit(1);
-}
-
-const contentPath = process.argv[2];
+// const contentPath = '../test/test_data/usfm/en_ust_oba.usfm'; // 57-TIT.usfm
+const contentPath = '../test/test_data/usfm/57-TIT.usfm';
 let content;
 
 try {
@@ -18,15 +14,8 @@ try {
 }
 
 const contentType = contentPath.split('.').pop();
-const queryPath = process.argv[3];
-let query;
 
-try {
-  query = fse.readFileSync(queryPath).toString();
-} catch (err) {
-  console.log(`ERROR: Could not read query from file '${contentPath}'`);
-  process.exit(1);
-}
+const query = `{ documents { bookCode: header(id:"bookCode") cvIndexes { chapter verseNumbers { number range } verseRanges { range numbers } } } }`;
 
 const pk = new Proskomma();
 //try {
@@ -40,14 +29,14 @@ pk.importDocument(
   contentType,
   content,
 );
-/*
-} catch (err) {
-console.log(`ERROR: Could not import document: '${err}'\n`);
-console.trace();
-process.exit(1);
-}
 
- */
 pk.gqlQuery(query)
-  .then(output => console.log(JSON.stringify(output, null, 2)))
+  .then(output => {
+    console.log(JSON.stringify(output, null, 2))
+    const doc1 = output.data.documents[0];
+    const bookId = doc1.bookCode;
+    const indices = doc1.cvIndexes;
+    console.log(bookId);
+    chapters
+  })
   .catch(err => console.log(`ERROR: Could not run query: '${err}'`));

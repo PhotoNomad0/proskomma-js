@@ -12,6 +12,7 @@ npm run coverage
 
 # Running the code
 ```
+npm run build
 cd scripts
 node do_graph.js ../test/test_data/usx/web_rut_1.usx example_query.txt
 node do_graph.js ../test/test_data/usfm/hello.usfm example_query.txt
