@@ -71,12 +71,118 @@ async function getChapter(bookId, chapter) {
   // const output = `${bookId} - ${chapters}`;
   const chapterData = await pk.gqlQuery(chapterQuery);
   const results = makeNestedView(chapterData);
+  const tC_Data = convertToTcore(results);
   // console.log(JSON.stringify(output, null, 2))
-  return results;
+  return tC_Data;
 }
 
-const verseMark = /^verse\/(\w+)$/;
+const verseMark = /^verse\/(.+)$/;
+const versesMark = /^verses\/(.+)$/;
 const attributeMark = /^attribute\/(.+)$/;
+const milestoneMark = /^milestone\/(.+)$/;
+const spanWithAttsMark = /^spanWithAtts\/(.+)$/;
+
+function convertAttributes(obj) {
+  const attrs = obj?.attributes || [];
+
+  if (attrs) {
+    for (let attr of attrs) {
+      if (attr.indexOf('x-') === 0) {
+        attr = attr.substr(2);
+      }
+
+      const parts = attr.split('/');
+      const key = parts[0];
+      const value = (parts.length > 2) ? parts[2] : '';
+      obj[key] = value;
+    }
+
+    delete obj.attributes;
+  }
+}
+
+function flattenTextChildren(obj) {
+  const singleChild = obj?.children?.length === 1;
+
+  if (singleChild) {
+    const child = obj?.children[0];
+
+    if (child.type === 'token') {
+      obj.text = child.payload;
+      delete obj.children;
+    }
+  }
+}
+
+function convertObjArrayToTcore(objArray) {
+  for (const obj of objArray) {
+    const type = obj.type;
+
+    if (type === 'token') {
+      obj.text = obj.payload;
+      obj['type'] = 'text';
+    } else if ((type === 'scope') && (obj.subType === 'start')) {
+      let payload = obj.payload || '';
+      let matched = payload.match(milestoneMark);
+
+      if (matched) {
+        obj.tag = matched[1];
+        obj['type'] = 'milestone';
+        flattenTextChildren(obj);
+        convertAttributes(obj);
+      } else {
+        matched = payload.match(spanWithAttsMark);
+
+        if (matched) {
+          obj.tag = matched[1];
+          obj['type'] = (obj.tag === 'w') ? 'word' : obj.tag;
+          flattenTextChildren(obj);
+          convertAttributes(obj);
+        } else {
+          console.log(`Don't know what to do with: `, obj);
+          convertAttributes(obj);
+        }
+      }
+
+      if (obj.children?.length > 0) {
+        convertObjArrayToTcore(obj.children);
+      }
+    }
+  }
+  return objArray;
+}
+
+function getVerseData(verse, verseID) {
+  const verseChild = verse?.[0]?.children?.[0];
+  let childPayload = verseChild?.payload || '';
+  const matched = childPayload.match(versesMark);
+  let verseData = verse;
+
+  if (matched) { // if verses found
+    verseID = matched[1];
+    verseData = verseChild.children;
+  } else if (!verseChild) { // skip undefined parts of a verse span
+    verseID = null;
+  }
+  return { verseData, verseID };
+}
+
+function convertToTcore(content) {
+  const results = {};
+  const verses = Object.keys(content);
+
+  for (const v of verses) {
+    let verseID = v;
+    const verse = content[v];
+    const { verseData, verseID: verseID_ } = getVerseData(verse, verseID);
+
+    if (verseID_) {
+      const verseObjects = convertObjArrayToTcore(verseData);
+      results[verseID_] = { verseObjects };
+    }
+  }
+  return results;
+}
 
 function makeNestedView(content) {
   const results = {};
@@ -104,8 +210,7 @@ function makeNestedView(content) {
     if (subType === 'start') {
       matched = obj?.payload?.match(verseMark);
 
-      if (matched) { // is verse start marker
-        currentNode.children.push(obj);
+      if (matched) { // found verse start marker
         const foundVerse = matched[1];
 
         if (foundVerse) {
@@ -168,9 +273,12 @@ function makeNestedView(content) {
           const ancestor = stack[i];
 
           if ((ancestor.subType === 'start') && (ancestor.payload === obj.payload)) {
-            stack = stack.slice(0, i);
-
-            currentNode = stack[i - 1];
+            if (i > 1) { // don't run off end of stack
+              stack = stack.slice(0, i);
+              currentNode = stack[i - 1];
+            } else {
+              currentNode = stack[0];
+            }
             matched = true;
             break;
           }
